@@ -3,6 +3,8 @@
 export(check_catalog)
 export(check_quality)
 export(connect_lake)
+export(upsert_lake_catalog)
+export(write_lake_table)
 importFrom(DBI,
   dbConnect,
   dbDisconnect,

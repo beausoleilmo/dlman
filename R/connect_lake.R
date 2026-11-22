@@ -134,16 +134,16 @@ connect_lake <- function(
 
   attach_opts <- if (isTRUE(read_only)) {
     "(READ_ONLY)"
-  } else {
+  } else if (!file.exists(catalog_path)) {
     sprintf("(DATA_PATH '%s/')", data_path)
+  } else {
+    ""
   }
-
-  attach_sql <- sprintf(
-    "ATTACH 'ducklake:%s' AS %s %s;",
-    catalog_path,
-    alias,
-    attach_opts
-  )
+  attach_sql <- if (nzchar(attach_opts)) {
+    sprintf("ATTACH 'ducklake:%s' AS %s %s;", catalog_path, alias, attach_opts)
+  } else {
+    sprintf("ATTACH 'ducklake:%s' AS %s;", catalog_path, alias)
+  }
 
   DBI::dbExecute(con, attach_sql)
   DBI::dbExecute(con, sprintf("USE %s;", alias))
