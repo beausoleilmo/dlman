@@ -481,6 +481,7 @@ empty_resources_df <- function() {
 #' @examples
 #' \dontrun{
 #' api_url <- build_ckan_resource_url("3448b141-f236-4c1b-add8-fe59109ac4f7")
+#' api_url <- build_ckan_resource_url("3f91562f-f0f0-463d-a0e8-0c3a622abb78")
 #' bytes <- get_ckan_resource_size(api_url)
 #' format(structure(bytes, class = "object_size"), units = "auto")
 #' }

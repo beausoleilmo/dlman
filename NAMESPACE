@@ -16,6 +16,7 @@ export(normalize_lookup_csv)
 export(read_lake_catalog)
 export(read_lookup_csv)
 export(upsert_lake_catalog)
+export(write_cog_raster)
 export(write_lake_table)
 importFrom(DBI,
   dbConnect,

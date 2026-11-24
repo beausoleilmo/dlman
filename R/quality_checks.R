@@ -191,20 +191,31 @@ check_quality <- function(
   # 2. Check registered raster assets exist on disk
   rasters_df <- DBI::dbGetQuery(
     con,
-    "SELECT dataset_name, location_ref 
+    "SELECT dataset_name, format_type, location_ref 
     FROM lake_catalog 
-    WHERE format_type = 'raster_tif';"
+    WHERE format_type IN ('raster_tif', 'cog');"
   )
 
   for (i in seq_len(nrow(rasters_df))) {
     ds_name <- rasters_df$dataset_name[i]
-    rel_path <- rasters_df$location_ref[i]
-    full_path <- file.path(lake_dir, rel_path)
+    loc_ref <- rasters_df$location_ref[i]
+    full_path <- if (file.exists(loc_ref) || dir.exists(loc_ref)) {
+      loc_ref
+    } else {
+      file.path(lake_dir, loc_ref)
+    }
 
     if (!file.exists(full_path) && !dir.exists(full_path)) {
       errors <- c(
         errors,
         sprintf("[%s] Raster path not found: '%s'", ds_name, full_path)
+      )
+    } else if (
+      file.exists(full_path) && isTRUE(file.info(full_path)$size <= 0)
+    ) {
+      errors <- c(
+        errors,
+        sprintf("[%s] Raster file is empty (0 bytes): '%s'", ds_name, full_path)
       )
     }
   }
