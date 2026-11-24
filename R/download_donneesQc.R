@@ -513,7 +513,11 @@ get_ckan_resource_size <- function(
   # 1. Fast path: CKAN metadata 'size' field (in bytes)
   meta_size <- suppressWarnings(as.numeric(res_info$size))
   if (length(meta_size) == 1L && !is.na(meta_size) && meta_size >= 0) {
-    return(structure(meta_size, source = "ckan_metadata"))
+    return(structure(
+      meta_size,
+      source = "ckan_metadata",
+      class = "ckan_resource_size"
+    ))
   }
 
   download_url <- res_info$url
@@ -522,7 +526,11 @@ get_ckan_resource_size <- function(
       length(download_url) != 1L ||
       !nzchar(trimws(download_url))
   ) {
-    return(structure(NA_real_, source = "unavailable"))
+    return(structure(
+      NA_real_,
+      source = "unavailable",
+      class = "ckan_resource_size"
+    ))
   }
 
   # 2. Quick scan via HTTP HEAD -> Content-Length
@@ -533,7 +541,11 @@ get_ckan_resource_size <- function(
     method = "HEAD"
   )
   if (!is.na(head_bytes)) {
-    return(structure(head_bytes, source = "http_head"))
+    return(structure(
+      head_bytes,
+      source = "http_head",
+      class = "ckan_resource_size"
+    ))
   }
 
   # 3. Fallback: 1-byte Range request -> Content-Range total ("bytes 0-0/12345")
@@ -545,10 +557,14 @@ get_ckan_resource_size <- function(
     range_header = "bytes=0-0"
   )
   if (!is.na(range_bytes)) {
-    return(structure(range_bytes, source = "http_range"))
+    return(structure(
+      range_bytes,
+      source = "http_range",
+      class = "ckan_resource_size"
+    ))
   }
 
-  structure(NA_real_, source = "unavailable")
+  structure(NA_real_, source = "unavailable", class = "ckan_resource_size")
 }
 
 #' @keywords internal
@@ -602,4 +618,24 @@ probe_url_content_length <- function(
   }
 
   NA_real_
+}
+
+#' @export
+format.ckan_resource_size <- function(x, units = "auto", ...) {
+  if (length(x) == 0L || is.na(x)) {
+    return("unknown size")
+  }
+  format(structure(as.numeric(x), class = "object_size"), units = units, ...)
+}
+
+#' @export
+print.ckan_resource_size <- function(x, units = "auto", ...) {
+  src <- attr(x, "source", exact = TRUE)
+  formatted <- format.ckan_resource_size(x, units = units, ...)
+  if (!is.null(src) && nzchar(src)) {
+    cat(sprintf("%s [%s]\n", formatted, src))
+  } else {
+    cat(sprintf("%s\n", formatted))
+  }
+  invisible(x)
 }
