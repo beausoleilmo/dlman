@@ -117,9 +117,22 @@ download_ckan_resource <- function(
 
   resource_label <- res_info$name %||% "unnamed resource"
   resource_fmt <- res_info$format %||% "unknown format"
-  cli::cli_inform("Fetching resource:\n{resource_label} ({resource_fmt}).")
+  est_bytes <- suppressWarnings(as.numeric(res_info$size %||% NA_real_))
+  size_note <- if (
+    length(est_bytes) == 1L && !is.na(est_bytes) && est_bytes >= 0
+  ) {
+    paste0(
+      " [",
+      format(structure(est_bytes, class = "object_size"), units = "auto"),
+      "]"
+    )
+  } else {
+    ""
+  }
+  cli::cli_inform(
+    "Fetching resource:\n{resource_label} ({resource_fmt}){size_note}."
+  )
 
-  tictoc::tic("Download time: ")
   # Create output directory if it doesn't exist yet (works for temp and user folders)
   dir_created <- dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
   if (!dir_created && !dir.exists(out_dir)) {
@@ -131,17 +144,31 @@ download_ckan_resource <- function(
     out_dir = out_dir
   )
 
+  tictoc::tic("Download time: ")
+  on.exit(try(tictoc::toc(), silent = TRUE), add = TRUE)
+
   perform_ckan_get(
     api_url = download_url,
     user_agent = user_agent,
     path = archive_path
   )
+
+  on.exit(NULL)
   tictoc::toc()
+
+  if (!file.exists(archive_path) || isTRUE(file.info(archive_path)$size <= 0)) {
+    cli::cli_abort(
+      "Downloaded file at {.path {archive_path}} is missing or empty."
+    )
+  }
 
   extracted_files <- character(0)
   used_extract_dir <- NULL
 
-  if (isTRUE(unzip) && grepl("\\.zip$", archive_path, ignore.case = TRUE)) {
+  is_zip <- grepl("\\.zip$", archive_path, ignore.case = TRUE) ||
+    identical(toupper(trimws(resource_fmt)), "ZIP")
+
+  if (isTRUE(unzip) && is_zip) {
     used_extract_dir <- extract_dir %||% tempfile("dq_extract_")
 
     ext_created <- dir.create(
@@ -429,4 +456,150 @@ empty_resources_df <- function() {
     url = character(0),
     stringsAsFactors = FALSE
   )
+}
+
+
+#' Estimate CKAN Resource Download Size
+#'
+#' @description
+#' Performs a quick, non-downloading scan of a CKAN resource's size in bytes
+#' by checking CKAN `resource_show` metadata first and falling back to an HTTP
+#' `HEAD` request (with a byte-range fallback when needed) against the file URL.
+#'
+#' @param api_url A single non-empty character string pointing to a CKAN
+#'   `resource_show` URL (for example, produced by [build_ckan_resource_url()]).
+#' @param user_agent A single non-empty character string sent as the HTTP
+#'   `User-Agent` header. Defaults to `"R-donneesquebec-client"`.
+#' @param timeout A single positive numeric value specifying the request timeout
+#'   in seconds. Defaults to `10`.
+#'
+#' @return A single numeric value giving the estimated download size in bytes,
+#'   or `NA_real_` if the server or metadata does not expose a size. Includes a
+#'   `"source"` attribute (`"ckan_metadata"`, `"http_head"`, `"http_range"`,
+#'   or `"unavailable"`).
+#'
+#' @examples
+#' \dontrun{
+#' api_url <- build_ckan_resource_url("3448b141-f236-4c1b-add8-fe59109ac4f7")
+#' bytes <- get_ckan_resource_size(api_url)
+#' format(structure(bytes, class = "object_size"), units = "auto")
+#' }
+#'
+#' @export
+#' @md
+get_ckan_resource_size <- function(
+  api_url,
+  user_agent = "R-donneesquebec-client",
+  timeout = 10
+) {
+  assert_non_empty_string(api_url, "api_url")
+  assert_non_empty_string(user_agent, "user_agent")
+  if (
+    !is.numeric(timeout) ||
+      length(timeout) != 1L ||
+      is.na(timeout) ||
+      timeout <= 0
+  ) {
+    cli::cli_abort("{.arg timeout} must be a single positive number.")
+  }
+
+  meta <- perform_ckan_get(api_url = api_url, user_agent = user_agent)
+  if (!isTRUE(meta$success)) {
+    cli::cli_abort("CKAN API request failed for {.url {api_url}}.")
+  }
+
+  res_info <- meta$result %||% list()
+
+  # 1. Fast path: CKAN metadata 'size' field (in bytes)
+  meta_size <- suppressWarnings(as.numeric(res_info$size))
+  if (length(meta_size) == 1L && !is.na(meta_size) && meta_size >= 0) {
+    return(structure(meta_size, source = "ckan_metadata"))
+  }
+
+  download_url <- res_info$url
+  if (
+    !is.character(download_url) ||
+      length(download_url) != 1L ||
+      !nzchar(trimws(download_url))
+  ) {
+    return(structure(NA_real_, source = "unavailable"))
+  }
+
+  # 2. Quick scan via HTTP HEAD -> Content-Length
+  head_bytes <- probe_url_content_length(
+    url = download_url,
+    user_agent = user_agent,
+    timeout = timeout,
+    method = "HEAD"
+  )
+  if (!is.na(head_bytes)) {
+    return(structure(head_bytes, source = "http_head"))
+  }
+
+  # 3. Fallback: 1-byte Range request -> Content-Range total ("bytes 0-0/12345")
+  range_bytes <- probe_url_content_length(
+    url = download_url,
+    user_agent = user_agent,
+    timeout = timeout,
+    method = "GET",
+    range_header = "bytes=0-0"
+  )
+  if (!is.na(range_bytes)) {
+    return(structure(range_bytes, source = "http_range"))
+  }
+
+  structure(NA_real_, source = "unavailable")
+}
+
+#' @keywords internal
+#' @noRd
+probe_url_content_length <- function(
+  url,
+  user_agent,
+  timeout,
+  method = c("HEAD", "GET"),
+  range_header = NULL
+) {
+  method <- match.arg(method)
+
+  req <- httr2::request(url) |>
+    httr2::req_user_agent(user_agent) |>
+    httr2::req_timeout(timeout) |>
+    httr2::req_method(method) |>
+    httr2::req_error(is_error = function(resp) FALSE)
+
+  if (!is.null(range_header)) {
+    req <- httr2::req_headers(req, Range = range_header)
+  }
+
+  resp <- tryCatch(httr2::req_perform(req), error = function(e) NULL)
+  if (is.null(resp)) {
+    return(NA_real_)
+  }
+
+  status <- httr2::resp_status(resp)
+  if (status >= 400L && status != 206L) {
+    return(NA_real_)
+  }
+
+  cl <- suppressWarnings(as.numeric(
+    httr2::resp_header(resp, "Content-Length") %||% NA_character_
+  ))
+  if (length(cl) == 1L && !is.na(cl) && cl >= 0) {
+    # Note: for 206 Partial Content, Content-Length is the slice length; prefer Content-Range total
+    if (status != 206L) {
+      return(cl)
+    }
+  }
+
+  cr <- httr2::resp_header(resp, "Content-Range") %||% NA_character_
+  if (!is.na(cr) && grepl("/([0-9]+)$", cr)) {
+    total_str <- sub("^.*/([0-9]+)$", "\\1", trimws(cr))
+    total_num <- suppressWarnings(as.numeric(total_str))
+    if (length(total_num) == 1L && !is.na(total_num) && total_num >= 0) {
+      return(total_num)
+    }
+  }
+
+  NA_real_
 }

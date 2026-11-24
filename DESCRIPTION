@@ -18,7 +18,9 @@ Imports:
     tictoc,
     yaml
 Suggests:
+    arrow,
     sf,
     terra,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Config/testthat/edition: 3
