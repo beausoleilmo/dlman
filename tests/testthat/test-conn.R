@@ -1,4 +1,36 @@
-# tests/testthat/test-connect_lake.R
+# tests/testthat/test-conn.R
+
+test_that("connect_lake works with an isolated temporary DuckDB home", {
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("withr")
+
+  tmp_home <- withr::local_tempdir(pattern = "dlman_home_")
+  lake_dir <- withr::local_tempdir(pattern = "dlman_lake_")
+  dir.create(file.path(lake_dir, "data", "lake"), recursive = TRUE)
+
+  drv <- duckdb::duckdb(home = tmp_home)
+  con <- tryCatch(
+    connect_lake(
+      lake_dir = lake_dir,
+      read_only = FALSE,
+      drv = drv,
+      dbdir = ":memory:",
+      extensions = c("ducklake", "spatial"),
+      community_extensions = character()
+    ),
+    error = function(e) {
+      skip(paste("DuckLake extension unavailable in test env:", e$message))
+    }
+  )
+  withr::defer(
+    if (DBI::dbIsValid(con)) DBI::dbDisconnect(con, shutdown = TRUE)
+  )
+
+  expect_true(DBI::dbIsValid(con))
+  expect_true(dir.exists(tmp_home))
+})
+
 
 test_that("connect_lake validates arguments and missing read-only catalog", {
   expect_error(

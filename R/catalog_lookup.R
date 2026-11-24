@@ -129,7 +129,7 @@ resolve_lookup_encoding <- function(path, encoding = NULL) {
     "UTF-8"
   }
 
-  if (!toupper(top_enc) %in% c("UTF-8", "UTF8")) {
+  if (!toupper(top_enc) %in% c("UTF-8", "UTF8", "ASCII")) {
     cli::cli_warn(
       c(
         "Non-UTF-8 encoding detected in {.path {basename(path)}} ({.val {top_enc}}).",

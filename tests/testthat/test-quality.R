@@ -1,4 +1,4 @@
-# tests/testthat/test-check_quality.R
+# tests/testthat/test-quality.R
 test_that("check_quality passes for non-empty table and non-null geometry", {
   con <- DBI::dbConnect(duckdb::duckdb(), ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
