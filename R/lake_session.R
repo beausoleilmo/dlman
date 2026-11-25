@@ -7,6 +7,7 @@
 #' @param catalog_path Path to the dataset YAML catalog file.
 #' @param raw_dir Path to the immutable raw source archive directory.
 #' @param data_lake_path Path to the DuckLake managed Parquet storage directory.
+#' @param data_lake_cog Path to the DuckLake COG storage directory.
 #' @param alias Schema/catalog alias used inside DuckDB (e.g., `"qc_lake"`).
 #' @param extensions Character vector of DuckDB extensions to load.
 #' @param community_extensions Character vector of DuckDB community extensions
@@ -16,12 +17,31 @@
 #'   `raw_dir`, `data_lake_path`, and `alias`. Note that `on.exit()` cleanup
 #'   should be registered in the calling ingestion script so the connection
 #'   remains active for the full script duration.
+#' @examples
+#' \dontrun{
+#' library(dlman)
+#' library(sf)
+#' library(duckspatial)
+#' library(terra)
+#' library(dplyr)
+#' library(DBI)
+#'ctx <- dlman::init_ingestion(
+#'  lake_dir = ".",
+#'  alias = "qc_lake"
+#'  )
+#' on.exit(
+#'   if (DBI::dbIsValid(ctx$con)) DBI::dbDisconnect(ctx$con, shutdown = TRUE),
+#'     add = TRUE
+#'   )
+#'   # Proceed with ctx$con, ctx$raw_dir, ctx$catalog_path ...
+#' }
 #' @export
 init_ingestion <- function(
   lake_dir = ".",
   catalog_path = file.path(lake_dir, "catalog", "dataset.yml"),
   raw_dir = file.path(lake_dir, "data", "raw"),
   data_lake_path = file.path(lake_dir, "data", "lake"),
+  data_lake_cog = file.path(lake_dir, "data", "cog"),
   alias = "qc_lake",
   extensions = c("ducklake", "spatial"),
   community_extensions = character()
@@ -33,8 +53,10 @@ init_ingestion <- function(
     stop("`alias` must be a non-empty character scalar.", call. = FALSE)
   }
 
+  message("check_catalog")
   check_catalog(catalog_path = catalog_path)
 
+  message("Connecting to lake (RW)")
   con <- connect_lake(
     lake_dir = lake_dir,
     read_only = FALSE,
@@ -43,12 +65,25 @@ init_ingestion <- function(
     community_extensions = community_extensions
   )
 
+  message(
+    sprintf(
+      "Connected to : 
+    Alias: %s 
+    Lake:  %s, 
+    Dirs:  %s",
+      alias,
+      normalizePath(lake_dir),
+      paste(raw_dir, data_lake_path, data_lake_cog)
+    )
+  )
+
   list(
     con = con,
     lake_dir = lake_dir,
     catalog_path = catalog_path,
     raw_dir = raw_dir,
     data_lake_path = data_lake_path,
+    data_lake_cog = data_lake_cog,
     alias = alias
   )
 }

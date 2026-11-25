@@ -2,6 +2,7 @@
 
 S3method(format,ckan_resource_size)
 S3method(print,ckan_resource_size)
+export(assert_catalog_dataset)
 export(assert_non_empty_string)
 export(build_ckan_resource_url)
 export(check_catalog)

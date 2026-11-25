@@ -158,15 +158,27 @@ download_ckan_resource <- function(
   if (!dir_created && !dir.exists(out_dir)) {
     cli::cli_abort("Could not create output directory at {.path {out_dir}}.")
   }
-
+  # Get file size
+  size_out <- get_ckan_resource_size(api_url)
+  size_label <- if (is.null(size_out) || is.na(size_out)) {
+    "unknown"
+  } else {
+    format(
+      structure(as.numeric(size_out), class = "object_size"),
+      units = "auto"
+    )
+  }
   archive_path <- file.path(out_dir, new_file_name)
 
   cli::cli_inform(c(
-    "Fetching resource: {resource_label} ({resource_fmt}){size_note}.",
-    "i" = "Output directory: {.path {out_dir}}",
-    "i" = "Output path: {.path {archive_path}}",
+    "----------------",
+    "Fetching resource:",
+    " {resource_label} ({resource_fmt}){size_note}.",
+    # "i" = "Output directory: {.path {out_dir}}",
     "i" = "Original file name: {.file {original_file_name}}",
-    "i" = "New file name: {.file {new_file_name}}"
+    "i" = "File size: {size_label}",
+    "i" = "Output path: {.path {archive_path}}"
+    # "i" = "New file name: {.file {new_file_name}}",
   ))
 
   tictoc::tic("Download time: ")
@@ -417,42 +429,42 @@ fetch_dq_catalog <- function(
   do.call(rbind, pages)
 }
 
-# --- Internal Helpers --------------------------------------------------------
 
+#' Perform a GET request against a CKAN endpoint or resource URL
+#'
+#' Sends an HTTP `GET` request with a custom `User-Agent` header via
+#' [httr2::request()] and [httr2::req_perform()]. When `path` is supplied, the
+#' response body is written directly to disk (with optional download progress)
+#' and `path` is returned invisibly; when `path` is `NULL`, the JSON response
+#' body is parsed and returned.
+#'
+#' @param api_url Character scalar giving the CKAN API endpoint or direct
+#'   resource download URL.
+#' @param user_agent Character scalar specifying the `User-Agent` string sent
+#'   with the request.
+#' @param path Optional file path where the downloaded response body should be
+#'   written. If `NULL` (default), parses the response as JSON instead of saving
+#'   to disk.
+#' @param progress Logical flag controlling whether download progress is shown
+#'   when `path` is non-`NULL`. Defaults to `interactive()`.
+#'
+#' @return When `path` is provided, the file path `path` returned invisibly.
+#'   When `path` is `NULL`, the parsed JSON response returned by
+#'   [httr2::resp_body_json()].
 #' @noRd
-assert_non_empty_string <- function(x, arg_name) {
-  if (!is.character(x) || length(x) != 1L || !nzchar(trimws(x))) {
-    cli::cli_abort(
-      "{.arg {arg_name}} must be a single non-empty character string."
-    )
-  }
-  invisible(x)
-}
-
-#' @noRd
-assert_flag <- function(x, arg_name) {
-  if (!is.logical(x) || length(x) != 1L || is.na(x)) {
-    cli::cli_abort(
-      "{.arg {arg_name}} must be a single non-missing logical ({.code TRUE} or {.code FALSE})."
-    )
-  }
-  invisible(x)
-}
-
-#' @noRd
-assert_positive_int <- function(x, arg_name) {
-  if (!is.numeric(x) || length(x) != 1L || is.na(x) || x < 1 || x %% 1 != 0) {
-    cli::cli_abort("{.arg {arg_name}} must be a single positive integer.")
-  }
-  as.integer(x)
-}
-
-#' @noRd
-perform_ckan_get <- function(api_url, user_agent, path = NULL) {
+perform_ckan_get <- function(
+  api_url,
+  user_agent,
+  path = NULL,
+  progress = interactive()
+) {
   req <- httr2::request(api_url) |>
     httr2::req_user_agent(user_agent)
 
   if (!is.null(path)) {
+    if (isTRUE(progress)) {
+      req <- httr2::req_progress(req, type = "down")
+    }
     httr2::req_perform(req, path = path)
     return(invisible(path))
   }
@@ -479,6 +491,21 @@ resolve_download_path <- function(download_url, out_dir) {
   file.path(out_dir, file_name)
 }
 
+#' Convert a page of CKAN dataset records into a data frame
+#'
+#' Extracts `id`, `name`, `title`, and resource count (`n_resources`) from a
+#' list of CKAN dataset/package objects returned by a catalog search or listing
+#' endpoint, substituting `NA_character_` when text fields are `NULL` via
+#' `%||%` and `0L` when `resources` is absent.
+#'
+#' @param batch A list of CKAN dataset/package objects (typically from a
+#'   paginated CKAN search or package list response), where each element may
+#'   contain `id`, `name`, `title`, and `resources`.
+#'
+#' @return A `data.frame` matching empty_catalog_df() with columns `id`
+#'   (`character`), `name` (`character`), `title` (`character`), and
+#'   `n_resources` (`integer`), containing one row per element in `batch` (or
+#'   zero rows if `batch` is empty).
 #' @noRd
 parse_catalog_page <- function(batch) {
   data.frame(
@@ -494,6 +521,16 @@ parse_catalog_page <- function(batch) {
   )
 }
 
+
+#' Construct an empty typed data frame for catalog listings
+#'
+#' Creates a zero-row `data.frame` with explicit column types (`id`, `name`,
+#' and `title` as `character`; `n_resources` as `integer`) so catalog search or
+#' listing helpers return a consistent schema even when no matching records are
+#' found.
+#'
+#' @return A 0-row `data.frame` with columns `id` (`character`), `name`
+#'   (`character`), `title` (`character`), and `n_resources` (`integer`).
 #' @noRd
 empty_catalog_df <- function() {
   data.frame(
@@ -563,7 +600,19 @@ fetch_dataset_resources <- function(
 }
 
 # --- Internal Helpers --------------------------------------------------------
-
+#' Convert a list of CKAN resource objects into a data frame
+#'
+#' Extracts `id`, `name`, `format`, and `url` from each element of `resources`
+#' into a typed `data.frame`, substituting `NA_character_` when a field is
+#' `NULL` via `%||%`.
+#'
+#' @param resources A list of resource metadata objects (typically parsed from
+#'   a CKAN package JSON payload), where each element may contain `id`, `name`,
+#'   `format`, and `url`.
+#'
+#' @return A `data.frame` with columns `resource_id` (`character`), `name`
+#'   (`character`), `format` (`character`), and `url` (`character`), with one
+#'   row per element in `resources` (or zero rows if `resources` is empty).
 #' @noRd
 parse_resources_list <- function(resources) {
   data.frame(
@@ -591,6 +640,15 @@ parse_resources_list <- function(resources) {
   )
 }
 
+#' Construct an empty typed data frame for CKAN resources
+#'
+#' @description Creates a zero-row `data.frame` matching the schema produced by
+#' parse_resources_list() (`resource_id`, `name`, `format`, and `url` as
+#' `character` columns) so resource-listing helpers return a consistent table
+#' structure when no resources are available.
+#'
+#' @return A 0-row `data.frame` with columns `resource_id` (`character`),
+#'   `name` (`character`), `format` (`character`), and `url` (`character`).
 #' @noRd
 empty_resources_df <- function() {
   data.frame(
@@ -601,7 +659,6 @@ empty_resources_df <- function() {
     stringsAsFactors = FALSE
   )
 }
-
 
 #' Estimate CKAN Resource Download Size
 #'

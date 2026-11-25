@@ -15,6 +15,7 @@ Imports:
     duckdb,
     httr2,
     readr,
+    rlang,
     tictoc,
     yaml
 Suggests:

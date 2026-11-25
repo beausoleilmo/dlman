@@ -9,6 +9,7 @@ init_ingestion(
   catalog_path = file.path(lake_dir, "catalog", "dataset.yml"),
   raw_dir = file.path(lake_dir, "data", "raw"),
   data_lake_path = file.path(lake_dir, "data", "lake"),
+  data_lake_cog = file.path(lake_dir, "data", "cog"),
   alias = "qc_lake",
   extensions = c("ducklake", "spatial"),
   community_extensions = character()
@@ -22,6 +23,8 @@ init_ingestion(
 \item{raw_dir}{Path to the immutable raw source archive directory.}
 
 \item{data_lake_path}{Path to the DuckLake managed Parquet storage directory.}
+
+\item{data_lake_cog}{Path to the DuckLake COG storage directory.}
 
 \item{alias}{Schema/catalog alias used inside DuckDB (e.g., \code{"qc_lake"}).}
 
@@ -39,4 +42,23 @@ remains active for the full script duration.
 \description{
 Validates the YAML catalog contract and opens a read-write DuckLake
 connection along with resolved directory paths for an ingestion script.
+}
+\examples{
+\dontrun{
+library(dlman)
+library(sf)
+library(duckspatial)
+library(terra)
+library(dplyr)
+library(DBI)
+ctx <- dlman::init_ingestion(
+ lake_dir = ".",
+ alias = "qc_lake"
+ )
+on.exit(
+  if (DBI::dbIsValid(ctx$con)) DBI::dbDisconnect(ctx$con, shutdown = TRUE),
+    add = TRUE
+  )
+  # Proceed with ctx$con, ctx$raw_dir, ctx$catalog_path ...
+}
 }

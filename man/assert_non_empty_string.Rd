@@ -4,7 +4,7 @@
 \alias{assert_non_empty_string}
 \title{Assert that an input is a single non-empty character string}
 \usage{
-assert_non_empty_string(x, arg_name)
+assert_non_empty_string(x, arg_name = rlang::caller_arg(x))
 }
 \arguments{
 \item{x}{Object to validate.}
