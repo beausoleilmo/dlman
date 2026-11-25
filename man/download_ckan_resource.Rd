@@ -7,6 +7,7 @@
 download_ckan_resource(
   api_url,
   out_dir = tempfile("dq_admin_"),
+  dataset_slug = NULL,
   unzip = TRUE,
   extract_dir = if (isTRUE(unzip)) tempfile("dq_extract_") else NULL,
   user_agent = "R-donneesquebec-client"
@@ -19,6 +20,10 @@ download_ckan_resource(
 \item{out_dir}{A single non-empty character string specifying the output
 directory for the downloaded file. Defaults to a temporary directory created
 with \code{\link[base:tempfile]{base::tempfile()}}.}
+
+\item{dataset_slug}{Optional single non-empty character string used as the
+standardized filename prefix (ideally matching the target lake table name).
+When \code{NULL}, falls back to the CKAN resource name or original file stem.}
 
 \item{unzip}{A single logical (\code{TRUE} or \code{FALSE}) indicating whether \code{.zip}
 archives should be extracted. Defaults to \code{TRUE}.}
@@ -35,6 +40,9 @@ A list (invisibly) containing:
 \itemize{
 \item \code{out_dir}: Path to the output directory.
 \item \code{file_path}: Path to the downloaded file.
+\item \code{original_file_name}: Original filename derived from the download URL
+(or fallback).
+\item \code{new_file_name}: Standardized filename written to \code{out_dir}.
 \item \code{extract_dir}: Path to the extraction directory (or \code{NULL} if not unzipped).
 \item \code{extracted_files}: Character vector of extracted file paths (empty if not
 unzipped or not a \code{.zip} file).
@@ -43,13 +51,17 @@ unzipped or not a \code{.zip} file).
 }
 \description{
 Queries a CKAN resource metadata endpoint, validates the response, downloads
-the underlying resource file to disk, and optionally extracts \code{.zip}
-archives.
+the underlying resource file to disk using a standardized filename, prints
+path and filename details, and optionally extracts \code{.zip} archives.
 }
 \examples{
 \dontrun{
 api_url <- build_ckan_resource_url("3448b141-f236-4c1b-add8-fe59109ac4f7")
-res <- download_ckan_resource(api_url, out_dir = "data/raw")
+res <- download_ckan_resource(
+  api_url,
+  out_dir = "raw/donnees_quebec/decoupages_administratifs",
+  dataset_slug = "decoupages_administratifs"
+)
 if (!is.null(res$extract_dir) && !identical(res$extract_dir, res$out_dir)) {
   on.exit(
     unlink(res$extract_dir, recursive = TRUE, force = TRUE),

@@ -10,8 +10,10 @@
 #'   (e.g., `"Données Québec"`).
 #' @param format_type Single non-empty character string for storage format
 #'   (e.g., `"ducklake_table"`).
-#' @param location_ref Single non-empty character string referencing the table or
-#'   object (e.g., `"qc_lake.qc_regions"`).
+#' @param location_ref Single non-empty character string referencing the lake
+#'   table or materialized asset (e.g., `"qc_lake.qc_regions"`).
+#' @param raw_path Optional character string path to the immutable raw source
+#'   file, or `NA_character_` when not applicable. Defaults to `NA_character_`.
 #' @param crs_epsg Optional integer EPSG code (e.g., `32198L`), or `NA_integer_`
 #'   when non-spatial.
 #' @param notes Optional character string describing the dataset.
@@ -27,6 +29,7 @@ upsert_lake_catalog <- function(
   source_system,
   format_type,
   location_ref,
+  raw_path = NA_character_,
   crs_epsg = NA_integer_,
   notes = NA_character_,
   catalog_table = "qc_lake.lake_catalog"
@@ -39,6 +42,16 @@ upsert_lake_catalog <- function(
   assert_non_empty_string(format_type, "format_type")
   assert_non_empty_string(location_ref, "location_ref")
   assert_non_empty_string(catalog_table, "catalog_table")
+
+  if (!is.na(raw_path)) {
+    assert_non_empty_string(raw_path, "raw_path")
+  }
+
+  raw_path_sql <- if (is.na(raw_path) || !nzchar(trimws(raw_path))) {
+    "NULL::VARCHAR"
+  } else {
+    DBI::dbQuoteString(con, raw_path)
+  }
 
   epsg_sql <- if (is.na(crs_epsg)) {
     "NULL::INTEGER"
@@ -76,17 +89,19 @@ upsert_lake_catalog <- function(
           source_system,
           format_type,
           location_ref,
+          raw_path,
           crs_epsg,
           last_ingested_at,
           notes
         )
-        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s);
+        VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, %s);
         ",
         catalog_table,
         dataset_sql,
         source_sql,
         format_sql,
         location_sql,
+        raw_path_sql,
         epsg_sql,
         notes_sql
       )

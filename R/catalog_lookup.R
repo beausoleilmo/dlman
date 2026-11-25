@@ -28,14 +28,25 @@ read_lake_catalog <- function(
     return(
       DBI::dbGetQuery(
         con,
-        sprintf("SELECT * FROM %s WHERE dataset_name = %s;", tbl_sql, val_sql)
+        sprintf(
+          "SELECT * 
+           FROM %s 
+           WHERE dataset_name = %s;",
+          tbl_sql,
+          val_sql
+        )
       )
     )
   }
 
   DBI::dbGetQuery(
     con,
-    sprintf("SELECT * FROM %s ORDER BY dataset_name;", tbl_sql)
+    sprintf(
+      "SELECT * 
+       FROM %s 
+       ORDER BY dataset_name;",
+      tbl_sql
+    )
   )
 }
 
@@ -107,6 +118,22 @@ read_lookup_csv <- function(
   out
 }
 
+#' Resolve the character encoding for a lookup CSV file
+#'
+#' Returns an explicitly supplied `encoding` after validating it with
+#' [assert_non_empty_string()], or otherwise guesses the encoding using
+#' [readr::guess_encoding()]. Treats `"ASCII"` as compatible with `"UTF-8"`
+#' and warns when an explicit non-UTF-8 encoding is requested or a non-UTF-8
+#' encoding is guessed.
+#'
+#' @param path Path to the lookup file (typically a CSV under
+#'   `catalog/lookups/`).
+#' @param encoding Optional character string specifying the file encoding
+#'   (for example, `"UTF-8"` or `"Latin-1"`). If `NULL`, the encoding is
+#'   guessed automatically from `path`.
+#'
+#' @return A single character string naming the resolved encoding.
+#' @noRd
 resolve_lookup_encoding <- function(path, encoding = NULL) {
   if (!is.null(encoding)) {
     assert_non_empty_string(encoding, "encoding")
@@ -136,12 +163,30 @@ resolve_lookup_encoding <- function(path, encoding = NULL) {
         "i" = "Standardize lookup files to UTF-8 in {.path catalog/lookups/} to avoid encoding drift."
       )
     )
-    return(top_enc)
   }
 
-  "UTF-8"
+  top_enc
 }
 
+#' Resolve the column delimiter for a lookup CSV file
+#'
+#' Validates and returns an explicitly supplied `delim` (via
+#' [assert_non_empty_string()]), or inspects the first 10 non-empty lines of
+#' `path` to infer the most consistent delimiter among `","`, `";"`, and `"\t"`.
+#' Warns via [cli::cli_warn()] when using or detecting a delimiter other than
+#' `","`, defaulting to `","` if the file is empty or no candidate appears.
+#'
+#' @param path Path to the lookup file (typically a CSV under
+#'   `catalog/lookups/`).
+#' @param encoding Character encoding passed to [readLines()] when `delim` is
+#'   `NULL` (defaults to `"UTF-8"`).
+#' @param delim Optional single-character delimiter string (for example, `","`,
+#'   `";"`, or `"\t"`). If `NULL`, the delimiter is inferred from the sample
+#'   lines of `path`.
+#'
+#' @return A single character string specifying the resolved delimiter (defaults
+#'   to `","`).
+#' @noRd
 resolve_lookup_delimiter <- function(path, encoding = "UTF-8", delim = NULL) {
   if (!is.null(delim)) {
     assert_non_empty_string(delim, "delim")

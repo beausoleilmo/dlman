@@ -42,14 +42,17 @@ build_ckan_resource_url <- function(
 #'
 #' @description
 #' Queries a CKAN resource metadata endpoint, validates the response, downloads
-#' the underlying resource file to disk, and optionally extracts `.zip`
-#' archives.
+#' the underlying resource file to disk using a standardized filename, prints
+#' path and filename details, and optionally extracts `.zip` archives.
 #'
 #' @param api_url A single non-empty character string pointing to a CKAN
 #'   `resource_show` URL (for example, produced by [build_ckan_resource_url()]).
 #' @param out_dir A single non-empty character string specifying the output
 #'   directory for the downloaded file. Defaults to a temporary directory created
 #'   with [base::tempfile()].
+#' @param dataset_slug Optional single non-empty character string used as the
+#'   standardized filename prefix (ideally matching the target lake table name).
+#'   When `NULL`, falls back to the CKAN resource name or original file stem.
 #' @param unzip A single logical (`TRUE` or `FALSE`) indicating whether `.zip`
 #'   archives should be extracted. Defaults to `TRUE`.
 #' @param extract_dir Optional single non-empty character string specifying where
@@ -61,6 +64,9 @@ build_ckan_resource_url <- function(
 #' @return A list (invisibly) containing:
 #'   * `out_dir`: Path to the output directory.
 #'   * `file_path`: Path to the downloaded file.
+#'   * `original_file_name`: Original filename derived from the download URL
+#'     (or fallback).
+#'   * `new_file_name`: Standardized filename written to `out_dir`.
 #'   * `extract_dir`: Path to the extraction directory (or `NULL` if not unzipped).
 #'   * `extracted_files`: Character vector of extracted file paths (empty if not
 #'     unzipped or not a `.zip` file).
@@ -69,7 +75,11 @@ build_ckan_resource_url <- function(
 #' @examples
 #' \dontrun{
 #' api_url <- build_ckan_resource_url("3448b141-f236-4c1b-add8-fe59109ac4f7")
-#' res <- download_ckan_resource(api_url, out_dir = "data/raw")
+#' res <- download_ckan_resource(
+#'   api_url,
+#'   out_dir = "raw/donnees_quebec/decoupages_administratifs",
+#'   dataset_slug = "decoupages_administratifs"
+#' )
 #' if (!is.null(res$extract_dir) && !identical(res$extract_dir, res$out_dir)) {
 #'   on.exit(
 #'     unlink(res$extract_dir, recursive = TRUE, force = TRUE),
@@ -84,12 +94,16 @@ build_ckan_resource_url <- function(
 download_ckan_resource <- function(
   api_url,
   out_dir = tempfile("dq_admin_"),
+  dataset_slug = NULL,
   unzip = TRUE,
   extract_dir = if (isTRUE(unzip)) tempfile("dq_extract_") else NULL,
   user_agent = "R-donneesquebec-client"
 ) {
   assert_non_empty_string(api_url, "api_url")
   assert_non_empty_string(out_dir, "out_dir")
+  if (!is.null(dataset_slug)) {
+    assert_non_empty_string(dataset_slug, "dataset_slug")
+  }
   assert_non_empty_string(user_agent, "user_agent")
   assert_flag(unzip, "unzip")
   if (!is.null(extract_dir)) {
@@ -129,8 +143,14 @@ download_ckan_resource <- function(
   } else {
     ""
   }
-  cli::cli_inform(
-    "Fetching resource:\n{resource_label} ({resource_fmt}){size_note}."
+
+  original_file_name <- extract_original_filename(download_url)
+  new_file_name <- standardize_download_filename(
+    original_name = original_file_name,
+    dataset_slug = dataset_slug,
+    resource_name = resource_label,
+    resource_fmt = resource_fmt,
+    stamp_date = Sys.Date()
   )
 
   # Create output directory if it doesn't exist yet (works for temp and user folders)
@@ -139,10 +159,15 @@ download_ckan_resource <- function(
     cli::cli_abort("Could not create output directory at {.path {out_dir}}.")
   }
 
-  archive_path <- resolve_download_path(
-    download_url = download_url,
-    out_dir = out_dir
-  )
+  archive_path <- file.path(out_dir, new_file_name)
+
+  cli::cli_inform(c(
+    "Fetching resource: {resource_label} ({resource_fmt}){size_note}.",
+    "i" = "Output directory: {.path {out_dir}}",
+    "i" = "Output path: {.path {archive_path}}",
+    "i" = "Original file name: {.file {original_file_name}}",
+    "i" = "New file name: {.file {new_file_name}}"
+  ))
 
   tictoc::tic("Download time: ")
   on.exit(try(tictoc::toc(), silent = TRUE), add = TRUE)
@@ -188,10 +213,129 @@ download_ckan_resource <- function(
   invisible(list(
     out_dir = out_dir,
     file_path = archive_path,
+    original_file_name = original_file_name,
+    new_file_name = new_file_name,
     extract_dir = used_extract_dir,
     extracted_files = extracted_files,
     metadata = res_info
   ))
+}
+
+# --- Filename Standardization Helpers ----------------------------------------
+
+#' @noRd
+extract_original_filename <- function(download_url) {
+  clean_url <- sub("[?#].*$", "", download_url)
+  file_name <- basename(clean_url)
+
+  if (
+    !nzchar(file_name) ||
+      identical(file_name, "/") ||
+      identical(file_name, ".")
+  ) {
+    timestamp <- format(Sys.time(), "%Y%m%d%H%M%S")
+    return(paste0("resource_", timestamp))
+  }
+
+  utils::URLdecode(file_name)
+}
+
+#' @noRd
+slugify_ascii <- function(x, fallback = "resource") {
+  if (!is.character(x) || length(x) != 1L || !nzchar(trimws(x))) {
+    return(fallback)
+  }
+
+  from_chars <- paste0(
+    "\u00e0\u00e1\u00e2\u00e3\u00e4\u00e5",
+    "\u00e7",
+    "\u00e8\u00e9\u00ea\u00eb",
+    "\u00ec\u00ed\u00ee\u00ef",
+    "\u00f1",
+    "\u00f2\u00f3\u00f4\u00f5\u00f6\u00f8",
+    "\u00f9\u00fa\u00fb\u00fc",
+    "\u00fd\u00ff"
+  )
+  to_chars <- paste0(
+    "aaaaaa",
+    "c",
+    "eeee",
+    "iiii",
+    "n",
+    "oooooo",
+    "uuuu",
+    "yy"
+  )
+
+  slug <- trimws(x) |>
+    sub("\\s*\\(format\\s+[^)]+\\)\\s*$", "", x = _, ignore.case = TRUE) |>
+    tolower() |>
+    gsub("\u00e6", "ae", x = _, fixed = TRUE) |>
+    gsub("\u0153", "oe", x = _, fixed = TRUE) |>
+    chartr(from_chars, to_chars, x = _) |>
+    gsub("[^a-z0-9]+", "_", x = _) |>
+    gsub("^_+|_+$", "", x = _)
+
+  if (nzchar(slug)) slug else fallback
+}
+
+#' @noRd
+standardize_download_filename <- function(
+  original_name,
+  dataset_slug = NULL,
+  resource_name = NULL,
+  resource_fmt = NULL,
+  stamp_date = Sys.Date(),
+  sep = "_"
+) {
+  parts <- split_archive_extension(original_name, resource_fmt = resource_fmt)
+
+  prefix_source <- if (!is.null(dataset_slug) && nzchar(trimws(dataset_slug))) {
+    dataset_slug
+  } else if (
+    !is.null(resource_name) && !identical(resource_name, "unnamed resource")
+  ) {
+    resource_name
+  } else {
+    parts$stem
+  }
+
+  slug <- slugify_ascii(prefix_source, fallback = "resource")
+  date_str <- format(as.Date(stamp_date), "%Y-%m-%d")
+
+  # Avoid duplicating the date if already present at the end of the slug
+  stem <- if (endsWith(slug, paste0(sep, date_str))) {
+    slug
+  } else {
+    paste(slug, date_str, sep = sep)
+  }
+
+  paste0(stem, parts$ext)
+}
+
+#' @noRd
+split_archive_extension <- function(file_name, resource_fmt = NULL) {
+  lower_name <- tolower(file_name)
+
+  # Preserve common compound extensions first
+  compound_exts <- c(".gpkg.zip", ".shp.zip", ".geojson.zip", ".tar.gz")
+  for (ext in compound_exts) {
+    if (endsWith(lower_name, ext)) {
+      stem <- substr(file_name, 1L, nchar(file_name) - nchar(ext))
+      return(list(stem = stem, ext = ext))
+    }
+  }
+
+  dot_pos <- regexpr("\\.[A-Za-z0-9]+$", file_name)
+  if (dot_pos > 1L) {
+    stem <- substr(file_name, 1L, dot_pos - 1L)
+    ext <- tolower(substr(file_name, dot_pos, nchar(file_name)))
+    return(list(stem = stem, ext = ext))
+  }
+
+  fmt_slug <- slugify_ascii(resource_fmt, fallback = "")
+  ext <- if (nzchar(fmt_slug)) paste0(".", fmt_slug) else ""
+  list(stem = file_name, ext = ext)
 }
 
 #' Fetch the Données Québec Dataset Catalog

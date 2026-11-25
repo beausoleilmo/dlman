@@ -9,14 +9,16 @@ test_that("check_quality passes for non-empty table and non-null geometry", {
     CREATE TABLE lake_catalog (
       dataset_name VARCHAR,
       format_type VARCHAR,
-      location_ref VARCHAR
+      location_ref VARCHAR, 
+      raw_path VARCHAR
     );
   "
   )
   DBI::dbExecute(
     con,
     "
-    INSERT INTO lake_catalog VALUES ('admin_municipalites', 'ducklake_table', 'admin_municipalites');
+    INSERT INTO lake_catalog 
+    VALUES ('admin_municipalites', 'ducklake_table', 'admin_municipalites', '.');
   "
   )
   DBI::dbExecute(
@@ -63,7 +65,8 @@ test_that("check_quality validates COG raster entries when present and errors wh
     CREATE TABLE lake_catalog (
       dataset_name VARCHAR,
       format_type VARCHAR,
-      location_ref VARCHAR
+      location_ref VARCHAR,
+      raw_path VARCHAR
     );
     "
   )

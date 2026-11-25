@@ -10,6 +10,7 @@ upsert_lake_catalog(
   source_system,
   format_type,
   location_ref,
+  raw_path = NA_character_,
   crs_epsg = NA_integer_,
   notes = NA_character_,
   catalog_table = "qc_lake.lake_catalog"
@@ -26,8 +27,11 @@ upsert_lake_catalog(
 \item{format_type}{Single non-empty character string for storage format
 (e.g., \code{"ducklake_table"}).}
 
-\item{location_ref}{Single non-empty character string referencing the table or
-object (e.g., \code{"qc_lake.qc_regions"}).}
+\item{location_ref}{Single non-empty character string referencing the lake
+table or materialized asset (e.g., \code{"qc_lake.qc_regions"}).}
+
+\item{raw_path}{Optional character string path to the immutable raw source
+file, or \code{NA_character_} when not applicable. Defaults to \code{NA_character_}.}
 
 \item{crs_epsg}{Optional integer EPSG code (e.g., \code{32198L}), or \code{NA_integer_}
 when non-spatial.}

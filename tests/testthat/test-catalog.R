@@ -13,6 +13,7 @@ test_that("upsert_lake_catalog inserts and updates idempotently", {
       source_system VARCHAR,
       format_type VARCHAR,
       location_ref VARCHAR,
+      raw_path VARCHAR,
       crs_epsg INTEGER,
       notes VARCHAR,
       last_ingested_at TIMESTAMP
